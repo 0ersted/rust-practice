@@ -19,7 +19,7 @@ fn reference_count_test() {
 
     {
         // not prefered by Rust for not explicitly creating a rc
-        let c = Cons(4, a.clone()); 
+        let _c = Cons(4, a.clone()); 
         assert_eq!(Rc::strong_count(&a), 3);
     }
 
@@ -28,3 +28,28 @@ fn reference_count_test() {
     assert_eq!(Rc::strong_count(&a), 1);
 
 }
+
+#[derive(Debug)]
+// a list having multiple owners of mutable data
+enum NewList {
+    Cons(Rc<RefCell<i32>>, Rc<NewList>),
+    Nil,
+}
+
+use std::cell::RefCell;
+
+fn main() {
+    let value = Rc::new(RefCell::new(5));
+
+    let a = Rc::new(NewList::Cons(Rc::clone(&value), Rc::new(NewList::Nil)));
+
+    let b = NewList::Cons(Rc::new(RefCell::new(6)), Rc::clone(&a));
+    let c = NewList::Cons(Rc::new(RefCell::new(10)), Rc::clone(&a));
+
+    *value.borrow_mut() += 10;
+
+    println!("a after = {:?}", a);
+    println!("b after = {:?}", b);
+    println!("c after = {:?}", c);
+}
+
