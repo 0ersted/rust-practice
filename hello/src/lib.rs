@@ -13,15 +13,31 @@ struct Worker {
     worker: thread::JoinHandle<()>,
 }
 
-type Job = Box<dyn FnOnce() + Send + 'static>;
+trait FnBox {
+    fn call_box(self: Box<Self>);
+}
+
+impl<F: FnOnce()> FnBox for F {
+    fn call_box(self: Box<F>) {
+        (*self)();
+    } 
+}
+
+type Job = Box<dyn FnBox + Send + 'static>;
 
 impl Worker {
     pub fn new(id: usize, receiver: Arc<Mutex<mpsc::Receiver<Job>>>) -> Worker {
+        let thread = thread::spawn(move || {
+            loop {
+                let job = receiver.lock().unwrap().recv().unwrap();
+                println!("Worder {} gets a job", id);
+
+                job.call_box();
+            }
+        });
         Worker {
             id : id,
-            worker : thread::spawn(|| {
-                receiver;
-            }),
+            worker : thread,
         }
     }
 }
