@@ -5,12 +5,12 @@ use std::sync::Mutex;
 
 pub struct ThreadPool {
     workers: Vec<Worker>,
-    sender: mpsc::Sender<Job>,
+    sender: mpsc::Sender<Message>,
 }
 
 struct Worker {
     id: usize,
-    worker: thread::JoinHandle<()>,
+    worker: Option<thread::JoinHandle<()>>,
 }
 
 trait FnBox {
@@ -25,19 +25,32 @@ impl<F: FnOnce()> FnBox for F {
 
 type Job = Box<dyn FnBox + Send + 'static>;
 
+enum Message {
+    NewJob(Job),
+    Terminate,
+}
+
 impl Worker {
-    pub fn new(id: usize, receiver: Arc<Mutex<mpsc::Receiver<Job>>>) -> Worker {
+    pub fn new(id: usize, receiver: Arc<Mutex<mpsc::Receiver<Message>>>) -> Worker {
         let thread = thread::spawn(move || {
             loop {
-                let job = receiver.lock().unwrap().recv().unwrap();
-                println!("Worder {} gets a job", id);
+                let message = receiver.lock().unwrap().recv().unwrap();
 
-                job.call_box();
+                match message {
+                    Message::NewJob(job) => {
+                        println!("Worker {} gets a job", id);
+                        job.call_box();
+                    },
+                    Message::Terminate => {
+                        println!("Worker {} is being terminated", id);
+                        break;
+                    }
+                }
             }
         });
         Worker {
             id : id,
-            worker : thread,
+            worker : Some(thread),
         }
     }
 }
@@ -73,7 +86,22 @@ impl ThreadPool {
     {
         let job = Box::new(func);
         
-        self.sender.send(job).unwrap();
+        self.sender.send(Message::NewJob(job)).unwrap();
     }
+}
 
+impl Drop for ThreadPool {
+    fn drop(&mut self) {
+        println!("Sending termination signal");
+        for _ in &self.workers {
+            self.sender.send(Message::Terminate).unwrap(); 
+        }
+
+        for worker in &mut self.workers {
+            if let Some(thread) = worker.worker.take() {
+            println!("Worker {} is down", worker.id);
+                thread.join().unwrap();
+            }
+        }
+    }
 }
